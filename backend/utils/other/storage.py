@@ -5,6 +5,7 @@ from typing import List
 
 from google.cloud import storage
 from google.oauth2 import service_account
+from google.cloud.storage import transfer_manager
 
 from database.redis_db import cache_signed_url, get_cached_signed_url
 
@@ -20,7 +21,7 @@ postprocessing_audio_bucket = os.getenv('BUCKET_POSTPROCESSING')
 memories_recordings_bucket = os.getenv('BUCKET_MEMORIES_RECORDINGS')
 syncing_local_bucket = os.getenv('BUCKET_TEMPORAL_SYNC_LOCAL')
 omi_plugins_bucket = os.getenv('BUCKET_PLUGINS_LOGOS')
-
+chat_files_bucket = os.getenv('BUCKET_CHAT_FILES')
 
 # *******************************************
 # ************* SPEECH PROFILE **************
@@ -251,3 +252,21 @@ def delete_plugin_logo(img_url: str):
     print('delete_plugin_logo', path)
     blob = bucket.blob(path)
     blob.delete()
+
+
+# **********************************
+# ************* CHAT FILES **************
+# **********************************
+def upload_multi_chat_files(files_name: List[str], uid: str):
+    bucket = storage_client.bucket(chat_files_bucket)
+    result = transfer_manager.upload_many_from_filenames(bucket, files_name, source_directory="./", blob_name_prefix=f'{uid}/')
+    files = []
+    dictFiles = {}
+    for name, result in zip(files_name, result):
+        if isinstance(result, Exception):
+            print("Failed to upload {} due to exception: {}".format(name, result))
+        else:
+            files.append(f'https://storage.googleapis.com/{chat_files_bucket}/{uid}/name')
+            dictFiles[name] = f'https://storage.googleapis.com/{chat_files_bucket}/{uid}/{name}'
+    return dictFiles
+
