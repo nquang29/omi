@@ -1400,6 +1400,10 @@ def extract_question_from_conversation(messages: List[Message]) -> str:
     If the <user_last_messages> contain a complete question, maintain the original version as accurately as possible. \
     Avoid adding unnecessary words.
 
+    If the <user_last_messages> contain files (i.e., the file names <file_attached> are provided), it indicates that user want to ask about the files they just attached/uploaded \
+    For example, if the user says "What is this", and attaches a file, the answer should focus on asking about the content of that file like. \
+    Phrasing could include: "What is the content of the file <name_file> I just attached?", "Could you provide details about the file <name_file> I just uploaded?"
+
     You MUST keep the original <date_in_term>
 
     Output a WH-question, that is, a question that starts with a WH-word, like "What", "When", "Where", "Who", "Why", "How".
@@ -1438,7 +1442,7 @@ def extract_question_from_conversation(messages: List[Message]) -> str:
     - etc.
     </date_in_term>
     '''.replace('    ', '').strip()
-    # print(prompt)
+    print(prompt)
     question = llm_mini.with_structured_output(OutputQuestion).invoke(prompt).question
     # print(question)
     return question
