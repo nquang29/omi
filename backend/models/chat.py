@@ -102,10 +102,6 @@ class Message(BaseModel):
             #         return plugin.name RESTORE ME
             return message.sender.upper()  # TODO: use plugin id
 
-        def get_name_str(message: Message) -> str:
-            names = [f.name for f in message.files]
-            return ",".join(names) if len(names) > 0 else ""
-
         formatted_messages = [
             f"""
                 <message>
@@ -118,9 +114,7 @@ class Message(BaseModel):
                 <content>
                     {message.text}
                 </content>
-                <file>
-                    {get_name_str(message)}
-                </file>
+                {f'<attachements>\n' + '\n'.join([f"<file>{file.name}</file>" for file in message.files]) + '\n</attachements>' if message.files else ''}
                 </message>
             """.replace('    ', '').replace('\n\n\n', '\n\n').strip()
             for message in sorted_messages
