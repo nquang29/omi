@@ -135,12 +135,12 @@ def get_transcript_structure(transcript: str, started_at: datetime, language_cod
     return response
 
 
-def get_plugin_result(transcript: str, plugin: Plugin) -> str:
+def get_app_result(transcript: str, app: App) -> str:
     prompt = f'''
     Your are an AI with the following characteristics:
-    Name: ${plugin.name},
-    Description: ${plugin.description},
-    Task: ${plugin.memory_prompt}
+    Name: ${app.name},
+    Description: ${app.description},
+    Task: ${app.memory_prompt}
 
     Note: It is possible that the conversation you are given, has nothing to do with your task, \
     in that case, output an empty string. (For example, you are given a business conversation, but your task is medical analysis)
@@ -1366,7 +1366,7 @@ def new_memories_extractor(
         response: Memories = chain.invoke({
             'user_name': user_name,
             'conversation': content,
-            'facts_str': memories_str,
+            'memories_str': memories_str,
             'format_instructions': parser.get_format_instructions(),
         })
         # for fact in response:
@@ -1394,7 +1394,7 @@ def extract_memories_from_text(
             'user_name': user_name,
             'text_content': text,
             'text_source': text_source,
-            'facts_str': memories_str,
+            'memories_str': memories_str,
             'format_instructions': parser.get_format_instructions(),
         })
         return response.facts

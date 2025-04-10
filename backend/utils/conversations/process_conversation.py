@@ -7,6 +7,7 @@ from typing import Union, Tuple, List
 
 from fastapi import HTTPException
 
+from database import redis_db
 import database.memories as memories_db
 import database.conversations as conversations_db
 import database.notifications as notification_db
@@ -24,7 +25,7 @@ from models.notification_message import NotificationMessage
 from utils.apps import get_available_apps, update_personas_async, sync_update_persona_prompt
 from utils.llm import obtain_emotional_message, retrieve_metadata_fields_from_transcript, \
     summarize_open_glass, get_transcript_structure, generate_embedding, \
-    get_plugin_result, should_discard_conversation, summarize_experience_text, new_memories_extractor, \
+    get_app_result, should_discard_conversation, summarize_experience_text, new_memories_extractor, \
     trends_extractor, get_email_structure, get_post_structure, get_message_structure, \
     retrieve_metadata_from_email, retrieve_metadata_from_post, retrieve_metadata_from_message, \
     retrieve_metadata_from_text, \
@@ -116,12 +117,12 @@ def _get_conversation_obj(uid: str, structured: Structured,
 def _trigger_apps(uid: str, conversation: Conversation, is_reprocess: bool = False):
     apps: List[App] = get_available_apps(uid)
     filtered_apps = [app for app in apps if app.works_with_memories() and app.enabled]
-    conversation.plugins_results = []
+    conversation.apps_results = []
     threads = []
 
     def execute_app(app):
-        if result := get_plugin_result(conversation.get_transcript(False), app).strip():
-            conversation.plugins_results.append(PluginResult(plugin_id=app.id, content=result))
+        if result := get_app_result(conversation.get_transcript(False), app).strip():
+            conversation.apps_results.append(AppResult(app_id=app.id, content=result))
             if not is_reprocess:
                 record_app_usage(uid, app.id, UsageHistoryType.memory_created_prompt, conversation_id=conversation.id)
 
@@ -132,38 +133,38 @@ def _trigger_apps(uid: str, conversation: Conversation, is_reprocess: bool = Fal
     [t.join() for t in threads]
 
 
-def _extract_facts(uid: str, conversation: Conversation):
+def _extract_memories(uid: str, conversation: Conversation):
     # TODO: maybe instead (once they can edit them) we should not tie it this hard
     memories_db.delete_memories_for_conversation(uid, conversation.id)
 
-    new_facts: List[Memory] = []
+    new_memories: List[Memory] = []
 
-    # Extract facts based on conversation source
+    # Extract memories based on conversation source
     if conversation.source == ConversationSource.external_integration:
         text_content = conversation.external_data.get('text')
         if text_content and len(text_content) > 0:
             text_source = conversation.external_data.get('text_source', 'other')
-            new_facts = extract_memories_from_text(uid, text_content, text_source)
+            new_memories = extract_memories_from_text(uid, text_content, text_source)
     else:
         # For regular conversations with transcript segments
-        new_facts = new_memories_extractor(uid, conversation.transcript_segments)
+        new_memories = new_memories_extractor(uid, conversation.transcript_segments)
 
-    parsed_facts = []
-    for fact in new_facts:
-        parsed_facts.append(MemoryDB.from_memory(fact, uid, conversation.id, conversation.structured.category, False))
-        print('_extract_facts:', fact.category.value.upper(), '|', fact.content)
+    parsed_memories = []
+    for fact in new_memories:
+        parsed_memories.append(MemoryDB.from_memory(fact, uid, conversation.id, conversation.structured.category, False))
+        print('_extract_memories:', fact.category.value.upper(), '|', fact.content)
 
-    if len(parsed_facts) == 0:
-        print(f"No facts extracted for conversation {conversation.id}")
+    if len(parsed_memories) == 0:
+        print(f"No memories extracted for conversation {conversation.id}")
         return
 
-    print(f"Saving {len(parsed_facts)} facts for conversation {conversation.id}")
-    memories_db.save_memories(uid, [fact.dict() for fact in parsed_facts])
+    print(f"Saving {len(parsed_memories)} memories for conversation {conversation.id}")
+    memories_db.save_memories(uid, [fact.dict() for fact in parsed_memories])
 
 
-def send_new_facts_notification(token: str, facts: [MemoryDB]):
-    facts_str = ", ".join([fact.content for fact in facts])
-    message = f"New facts {facts_str}"
+def send_new_memories_notification(token: str, memories: [MemoryDB]):
+    memories_str = ", ".join([memory.content for memory in memories])
+    message = f"New memories {memories_str}"
     ai_message = NotificationMessage(
         text=message,
         from_integration='false',
@@ -219,7 +220,7 @@ def _update_personas_async(uid: str):
         threads = []
         for persona in personas:
             threads.append(threading.Thread(target=sync_update_persona_prompt, args=(persona,)))
-        
+
         [t.start() for t in threads]
         [t.join() for t in threads]
         print(f"[PERSONAS] Finished persona updates in background thread for uid={uid}")
@@ -235,7 +236,7 @@ def process_conversation(
     if not discarded:
         _trigger_apps(uid, conversation, is_reprocess=is_reprocess)
         threading.Thread(target=save_structured_vector, args=(uid, conversation,)).start() if not is_reprocess else None
-        threading.Thread(target=_extract_facts, args=(uid, conversation)).start()
+        threading.Thread(target=_extract_memories, args=(uid, conversation)).start()
 
     conversation.status = ConversationStatus.completed
     conversations_db.upsert_conversation(uid, conversation.dict())
@@ -409,3 +410,17 @@ def process_user_expression_measurement_callback(provider: str, request_id: str,
     send_notification(token, title, message, None)
 
     return
+
+
+def retrieve_in_progress_conversation(uid):
+    conversation_id = redis_db.get_in_progress_conversation_id(uid)
+    existing = None
+
+    if conversation_id:
+        existing = conversations_db.get_conversation(uid, conversation_id)
+        if existing and existing['status'] != 'in_progress':
+            existing = None
+
+    if not existing:
+        existing = conversations_db.get_in_progress_conversation(uid)
+    return existing
